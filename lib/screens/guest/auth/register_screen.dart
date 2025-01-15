@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -17,6 +19,7 @@ class _RegisterScreenState extends State<RegisterScreen>
 
   bool _isFormVisible = false;
   bool _isPasswordVisible = false;
+  bool _isLoading = false;
   late AnimationController _animationController;
   late Animation<Offset> _slideAnimation;
 
@@ -57,6 +60,127 @@ class _RegisterScreenState extends State<RegisterScreen>
     });
   }
 
+  bool _validateForm() {
+    if (nameController.text.isEmpty ||
+        emailController.text.isEmpty ||
+        usernameController.text.isEmpty ||
+        passwordController.text.isEmpty) {
+      _showErrorDialog('Semua field harus diisi');
+      return false;
+    }
+
+    if (!RegExp(r'^[\w-]+(\.[\w-]+)*@([\w-]+\.)+[a-zA-Z]{2,7}$')
+        .hasMatch(emailController.text)) {
+      _showErrorDialog('Format email tidak valid');
+      return false;
+    }
+
+    if (passwordController.text.length < 8) {
+      _showErrorDialog('Password minimal 8 karakter');
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<void> _register() async {
+    if (!_validateForm()) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse(
+            'https://8000-idx-uas-flutter-1736572602257.cluster-fu5knmr55rd44vy7k7pxk74ams.cloudworkstations.dev/api/v1/users'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode({
+          'name': nameController.text,
+          'username': usernameController.text,
+          'email': emailController.text,
+          'password': passwordController.text,
+        }),
+      );
+
+      if (response.statusCode == 201) {
+        // Registration successful
+        _showSuccessDialog();
+      } else {
+        // Parse error message from response
+        final errorData = json.decode(response.body);
+        _showErrorDialog(
+            errorData['message'] ?? 'Terjadi kesalahan saat registrasi');
+      }
+    } catch (e) {
+      _showErrorDialog('Tidak dapat terhubung ke server');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _showSuccessDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.green),
+              SizedBox(width: 10),
+              Text('Registrasi Berhasil'),
+            ],
+          ),
+          content: const Text(
+            'Akun Anda telah berhasil dibuat. Silakan login untuk melanjutkan.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _toggleForm();
+                GoRouter.of(context).go('/login');
+              },
+              child: const Text('Login Sekarang'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.error, color: Colors.red),
+              SizedBox(width: 10),
+              Text('Registrasi Gagal'),
+            ],
+          ),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -79,8 +203,8 @@ class _RegisterScreenState extends State<RegisterScreen>
                     child: SafeArea(
                       child: Column(
                         children: [
-                          Padding(
-                            padding: const EdgeInsets.all(16.0),
+                          const Padding(
+                            padding: EdgeInsets.all(16.0),
                           ),
                           Expanded(
                             child: Column(
@@ -219,7 +343,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                       TextField(
                         controller: nameController,
                         decoration: const InputDecoration(
-                          labelText: 'Nickname',
+                          labelText: 'Name',
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.person),
                         ),
@@ -267,7 +391,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                       ),
                       const SizedBox(height: 24),
                       ElevatedButton(
-                        onPressed: () {},
+                        onPressed: _isLoading ? null : _register,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF1E88E5),
                           padding: const EdgeInsets.symmetric(vertical: 16),
@@ -275,14 +399,24 @@ class _RegisterScreenState extends State<RegisterScreen>
                             borderRadius: BorderRadius.circular(8),
                           ),
                         ),
-                        child: const Text(
-                          'Register',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white),
+                                ),
+                              )
+                            : const Text(
+                                'Register',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                       ),
                     ],
                   ),

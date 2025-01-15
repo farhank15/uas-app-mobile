@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'dart:convert';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -8,15 +11,19 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen>
-    with SingleTickerProviderStateMixin {
-  final TextEditingController emailController = TextEditingController();
+class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStateMixin {
+  final TextEditingController identifierController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
+  final storage = const FlutterSecureStorage();
   bool isLoading = false;
   late AnimationController _animationController;
   late Animation<Offset> _slideAnimation;
   bool _isFormVisible = false;
   bool _isPasswordVisible = false;
+
+  // API URL Constants
+  static const String baseUrl = 'http://127.0.0.1:8000/api/v1';
+  static const String loginEndpoint = '$baseUrl/users/login';
 
   @override
   void initState() {
@@ -32,12 +39,21 @@ class _LoginScreenState extends State<LoginScreen>
       parent: _animationController,
       curve: Curves.easeOut,
     ));
+    checkExistingToken();
+  }
+
+  Future<void> checkExistingToken() async {
+    final token = await storage.read(key: 'access_token');
+    if (token != null) {
+      // Token exists, navigate to home
+      if (mounted) context.go('/home');
+    }
   }
 
   @override
   void dispose() {
     _animationController.dispose();
-    emailController.dispose();
+    identifierController.dispose();
     passwordController.dispose();
     super.dispose();
   }
@@ -76,24 +92,89 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  void _login() {
-    final email = emailController.text.trim();
+  Future<void> _saveTokens(String accessToken, String refreshToken) async {
+    await storage.write(key: 'access_token', value: accessToken);
+    await storage.write(key: 'refresh_token', value: refreshToken);
+  }
+
+  Future<void> _login() async {
+    final identifier = identifierController.text.trim();
     final password = passwordController.text.trim();
 
-    if (email.isEmpty || password.isEmpty) {
+    // Validasi input
+    if (identifier.isEmpty || password.isEmpty) {
       _showAlert(
         'Validation Error',
-        'Please enter your email and password.',
+        'Please enter your email/username and password.',
       );
       return;
     }
 
-    // Simulate login process
     setState(() => isLoading = true);
-    Future.delayed(const Duration(seconds: 2), () {
-      setState(() => isLoading = false);
-      context.go('/home'); // Navigate to home on success
-    });
+
+    try {
+      final response = await http.post(
+        Uri.parse(loginEndpoint),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'identifier': identifier,
+          'password': password,
+        }),
+      );
+
+      // Parse response
+      final responseData = json.decode(response.body);
+
+      if (response.statusCode == 200) {
+        // Login successful
+        if (responseData['status'] == 'success') {
+          // Save tokens
+          await _saveTokens(
+            responseData['data']['access_token'],
+            responseData['data']['refresh_token'],
+          );
+          
+          if (mounted) {
+            // Show success message before navigation
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(responseData['message'] ?? 'Login successful'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            
+            // Navigate to home
+            context.go('/home');
+          }
+        } else {
+          throw Exception(responseData['message'] ?? 'Login failed');
+        }
+      } else if (response.statusCode == 401) {
+        _showAlert(
+          'Authentication Failed',
+          'Invalid email/username or password.',
+        );
+      } else if (response.statusCode == 422) {
+        _showAlert(
+          'Validation Error',
+          responseData['message'] ?? 'Please check your input.',
+        );
+      } else {
+        _showAlert(
+          'Login Failed',
+          responseData['message'] ?? 'An error occurred during login.',
+        );
+      }
+    } catch (e) {
+      _showAlert(
+        'Error',
+        'Failed to connect to the server. Please check your internet connection.',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+    }
   }
 
   @override
@@ -116,8 +197,8 @@ class _LoginScreenState extends State<LoginScreen>
                     child: SafeArea(
                       child: Column(
                         children: [
-                          Padding(
-                            padding: const EdgeInsets.all(16.0),
+                          const Padding(
+                            padding: EdgeInsets.all(16.0),
                           ),
                           Expanded(
                             child: Column(
@@ -213,8 +294,7 @@ class _LoginScreenState extends State<LoginScreen>
                 child: Container(
                   decoration: const BoxDecoration(
                     color: Colors.white,
-                    borderRadius:
-                        BorderRadius.vertical(top: Radius.circular(20)),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                   ),
                   padding: const EdgeInsets.all(24.0),
                   child: Column(
@@ -238,11 +318,11 @@ class _LoginScreenState extends State<LoginScreen>
                       ),
                       const SizedBox(height: 16),
                       TextField(
-                        controller: emailController,
+                        controller: identifierController,
                         decoration: const InputDecoration(
-                          labelText: 'Email',
+                          labelText: 'Email or Username',
                           border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.email),
+                          prefixIcon: Icon(Icons.person),
                         ),
                         keyboardType: TextInputType.emailAddress,
                       ),
@@ -273,8 +353,7 @@ class _LoginScreenState extends State<LoginScreen>
                               onPressed: _login,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF1E88E5),
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 16),
+                                padding: const EdgeInsets.symmetric(vertical: 16),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(8),
                                 ),
