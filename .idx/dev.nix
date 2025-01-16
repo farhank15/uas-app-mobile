@@ -8,12 +8,6 @@
     pkgs.jdk17
     pkgs.unzip
   ];
-
-  services.postgres = {
-    enable = true;
-    package = pkgs.postgresql_15;
-  };
-  
   # Sets environment variables in the workspace
   env = {};
   idx = {
